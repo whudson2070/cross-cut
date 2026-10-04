@@ -1,2 +1,480 @@
 <!DOCTYPE html>
-PLACEHOLDER_SHOULD_NOT_SEND
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>CROSSCUT</title>
+<style>
+html,body{margin:0;height:100%;background:#05060a;overflow:hidden;user-select:none;touch-action:none;overscroll-behavior:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+html,body{position:fixed;inset:0;width:100%;height:100%}
+canvas{display:block;width:100vw;height:100vh;background:#05060a;touch-action:none;outline:none}
+#fsbtn{
+  position:fixed; z-index:6; top:max(6px, env(safe-area-inset-top)); left:max(6px, env(safe-area-inset-left));
+  min-height:44px; padding:10px 12px; border:2px solid #fff6d0; border-radius:10px;
+  background:#ffd56a; color:#1a1408; font:700 13px/1 Segoe UI, Arial, sans-serif;
+  letter-spacing:0.04em; touch-action:manipulation; cursor:pointer;
+}
+#touchui{
+  position:fixed; z-index:4; left:0; right:0; bottom:0; pointer-events:none;
+  display:flex; justify-content:space-between; align-items:flex-end;
+  padding:0 max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  box-sizing:border-box;
+}
+#touchui[hidden]{display:none !important}
+.cluster{pointer-events:none; display:flex; flex-direction:column; gap:8px; width:min(44vw, 300px)}
+.cluster.right{width:min(52vw, 420px)}
+.row{display:flex; gap:8px; width:100%}
+#touchui button{
+  pointer-events:auto; touch-action:none; flex:1; min-width:0; min-height:56px;
+  border:2px solid rgba(255,255,255,0.38); border-radius:14px;
+  background:rgba(10,14,24,0.78); color:#f4f7ff;
+  font:700 12px/1.05 Segoe UI, Arial, sans-serif; padding:4px 2px; cursor:pointer;
+}
+#touchui button.wide{width:68%; align-self:center; flex:none}
+#touchui button.on{background:#ffd56a; color:#1a1408; border-color:#fff6d0}
+#touchui button[data-act="blk"]{background:rgba(22,70,48,0.88)}
+#touchui button[data-act="sp"]{background:rgba(90,28,40,0.88)}
+#touchui button[data-act="blk"].on,#touchui button[data-act="sp"].on{background:#ffd56a; color:#1a1408}
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<button id="fsbtn" type="button">FULLSCREEN</button>
+<div id="touchui" hidden>
+  <div class="cluster left">
+    <button type="button" class="wide" data-act="u">JUMP</button>
+    <div class="row">
+      <button type="button" data-act="l">LEFT</button>
+      <button type="button" data-act="r">RIGHT</button>
+    </div>
+    <button type="button" class="wide" data-act="d">CROUCH</button>
+  </div>
+  <div class="cluster right">
+    <div class="row">
+      <button type="button" data-act="lp">LIGHT<br>PUNCH</button>
+      <button type="button" data-act="hp">HEAVY<br>PUNCH</button>
+      <button type="button" data-act="blk">BLOCK</button>
+    </div>
+    <div class="row">
+      <button type="button" data-act="lk">LIGHT<br>KICK</button>
+      <button type="button" data-act="hk">HEAVY<br>KICK</button>
+      <button type="button" data-act="sp">SPECIAL</button>
+    </div>
+  </div>
+</div>
+<script>
+'use strict';
+(function(){
+var W=960,H=540,GROUND=448,STAGE_L=76,STAGE_R=884;
+var PROJ_N=6,SP_N=64;
+var ctx=null,actx=null,tint='',curFont='';
+var mx=-1,my=-1,mdown=0,lastT=0,acc=0;
+var FONT={
+  title:'800 58px Impact, Haettenschweiler, Arial Black, sans-serif',
+  ban:'800 54px Impact, Haettenschweiler, Arial Black, sans-serif',
+  name:'700 16px Segoe UI, Arial, sans-serif',
+  ui:'600 13px Segoe UI, Arial, sans-serif',
+  tiny:'600 12px Segoe UI, Arial, sans-serif',
+  timer:'800 36px Impact, Arial Black, sans-serif',
+  combo:'800 20px Impact, Arial, sans-serif',
+  card:'700 18px Segoe UI, Arial, sans-serif',
+  big:'800 34px Impact, Haettenschweiler, Arial Black, sans-serif',
+  mid:'700 22px Segoe UI, Arial, sans-serif',
+  champ:'800 26px Impact, Haettenschweiler, Arial Black, sans-serif'
+};
+var HELP1='TOUCH: MOVE  JUMP  CROUCH  LIGHT PUNCH  HEAVY PUNCH  LIGHT KICK  HEAVY KICK  BLOCK  SPECIAL';
+var HELP2='ON-SCREEN BUTTONS ON A PHONE    KEYS: A D MOVE  W JUMP  S CROUCH  J LP  K HP  U LK  I HK  L BLOCK  O SPECIAL';
+var HELP3='DOWN  DOWN-FORWARD  FORWARD + PUNCH    KEY 3 CYCLES DIFFICULTY    HINT: BEAT GOJO ON HARD';
+var HELP_CPU='A/D YOUR FIGHTER    W/S CPU    TAP A CARD FOR YOU    TAP CPU OR THE ARROWS TO PICK THE CPU';
+var BAR=['#3aa0ff','#7ef0ff','#ff3b3b','#ffb03a','#ffd76a','#c5ced6'];
+var DIFF_LABEL=['EASY','NORMAL','HARD'];
+var SPARK_COLS=['#ffffff','#7ad0ff','#d8fbff','#ff4a3a','#ffc14d','#8a8178','#b9fff2','#ffe29a'];
+var CARD_X=[28,250,472,694], CARD_Y=120, CARD_W=214, CARD_H=268;
+var PAUSE_BOX=[330,96,300,70];
+var RESUME_BOX=[280,236,400,84];
+var START_BOX=[740,74,196,42];
+var YOU_PREV=[16,394,58,50];
+var YOU_NEXT=[128,394,58,50];
+var CPU_PREV=[774,394,58,50];
+var CPU_NEXT=[886,394,58,50];
+var YES_BOX=[200,300,240,70];
+var NO_BOX=[520,300,240,70];
+var QUEST_BOX=[772,40,160,32];
+var BOSS_BOX=[500,74,220,42];
+var SPEC_WIND=60;
+var SKY=['#070814','#0e1224','#171433','#241734','#2a1a2e','#1a1422'];
+var CODES=['KeyA','KeyD','KeyW','KeyS','KeyJ','KeyK','KeyU','KeyI','KeyL','KeyO','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Numpad1','Numpad2','Numpad3','Numpad4','Numpad5','Numpad6','KeyT','KeyY','KeyG','KeyH','KeyV','KeyB','Digit1','Digit2','Digit3','Enter','NumpadEnter','Escape','KeyN'];
+var down={}, edge={};
+for(var ci=0;ci<CODES.length;ci++){ down[CODES[ci]]=0; edge[CODES[ci]]=0; }
+var MAP=[
+  {l:['KeyA'],r:['KeyD'],u:['KeyW'],d:['KeyS'],lp:['KeyJ'],hp:['KeyK'],lk:['KeyU'],hk:['KeyI'],blk:['KeyL'],sp:['KeyO']},
+  {l:['ArrowLeft'],r:['ArrowRight'],u:['ArrowUp'],d:['ArrowDown'],lp:['Numpad4','KeyT'],hp:['Numpad5','KeyY'],lk:['Numpad1','KeyG'],hk:['Numpad2','KeyH'],blk:['Numpad6','KeyV'],sp:['Numpad3','KeyB']}
+];
+var MOVES={
+  lp:{su:5,ac:3,re:8,dmg:7,hs:18,bs:9,push:2.6,knock:3.1,shake:0,h:0,hb:[18,-64,38,26],stop:3,kind:''},
+  hp:{su:11,ac:4,re:16,dmg:14,hs:28,bs:14,push:4.4,knock:4.8,shake:5,h:0,hb:[22,-70,46,30],stop:5,kind:''},
+  lk:{su:6,ac:4,re:12,dmg:8,hs:22,bs:10,push:3.0,knock:3.4,shake:0,h:1,hb:[16,-36,44,20],stop:3,kind:''},
+  hk:{su:14,ac:5,re:20,dmg:16,hs:26,bs:14,push:5.4,knock:5.6,shake:6,h:2,hb:[20,-66,52,42],stop:6,kind:''},
+  clp:{su:4,ac:2,re:8,dmg:5,hs:15,bs:8,push:2.2,knock:2.6,shake:0,h:1,hb:[16,-40,36,18],stop:3,kind:''},
+  chp:{su:9,ac:3,re:15,dmg:12,hs:21,bs:12,push:3.8,knock:3.8,shake:4,h:1,hb:[18,-46,44,20],stop:5,kind:''},
+  clk:{su:5,ac:3,re:9,dmg:6,hs:16,bs:8,push:2.4,knock:2.8,shake:0,h:1,hb:[14,-28,42,16],stop:3,kind:''},
+  chk:{su:12,ac:4,re:18,dmg:13,hs:24,bs:13,push:6.0,knock:6.2,shake:5,h:1,hb:[8,-24,60,18],stop:5,kind:''},
+  jlp:{su:4,ac:6,re:8,dmg:8,hs:16,bs:10,push:2.4,knock:2.4,shake:2,h:2,hb:[14,-62,40,24],stop:3,kind:''},
+  jhk:{su:6,ac:8,re:12,dmg:13,hs:20,bs:12,push:3.6,knock:3.2,shake:4,h:2,hb:[10,-74,50,38],stop:5,kind:''}
+};
+var SPEC={
+  bolt:{su:12,ac:0,re:16,dmg:11,hs:20,bs:12,push:3.2,knock:2.4,shake:3,h:0,hb:[30,-60,8,8],stop:4,kind:'bolt'},
+  shard:{su:12,ac:0,re:16,dmg:11,hs:20,bs:12,push:3.0,knock:2.2,shake:3,h:0,hb:[24,-58,8,8],stop:4,kind:'shard'},
+  slash:{su:10,ac:6,re:16,dmg:12,hs:22,bs:12,push:4.4,knock:4.2,shake:5,h:0,hb:[4,-70,78,42],stop:5,kind:'slash'},
+  arc:{su:10,ac:6,re:16,dmg:12,hs:22,bs:12,push:4.2,knock:4.0,shake:5,h:0,hb:[12,-88,62,58],stop:4,kind:'arc'},
+  glory:{su:6,ac:10,re:16,dmg:34,hs:36,bs:18,push:6.6,knock:7.0,shake:8,h:0,hb:[4,-102,96,80],stop:6,kind:'glory'},
+  slam:{su:8,ac:12,re:22,dmg:51,hs:40,bs:20,push:8.2,knock:9.0,shake:8,h:1,hb:[-8,-46,132,54],stop:8,kind:'slam'}
+};
+var ROSTER=[
+  {id:0,name:'GOJO',title:'SWIFT',blurb:'BLUE BOLT',hp:90,walk:2.56,air:2.4,jump:-11.2,grav:0.50,rad:17,tall:100,wide:32,crouchH:52,dmg:0.70,lightSu:0,specStun:1,specBlock:1,special:'bolt',spark:1,ai:{zone:0,block:30,spec:40}},
+  {id:1,name:'SIMPLE ICE',title:'GUARD',blurb:'FROST SHARD',hp:80,walk:2.24,air:2.2,jump:-10.8,grav:0.51,rad:23,tall:78,wide:44,crouchH:50,dmg:0.90,lightSu:0,specStun:1,specBlock:1,special:'shard',spark:2,ai:{zone:0,block:32,spec:40}},
+  {id:2,name:'THE RED',title:'RUSH',blurb:'FLAME SLASH',hp:70,walk:2.88,air:2.55,jump:-11.5,grav:0.51,rad:21,tall:86,wide:42,crouchH:50,dmg:0.80,lightSu:0,specStun:1,specBlock:1,special:'slash',spark:3,ai:{zone:0,block:30,spec:40}},
+  {id:3,name:'WILL',title:'ACE',blurb:'SUNBREAK',hp:90,walk:2.24,air:2.2,jump:-10.8,grav:0.50,rad:19,tall:90,wide:36,crouchH:50,dmg:0.80,lightSu:0,specStun:1,specBlock:1,special:'arc',spark:4,ai:{zone:0,block:30,spec:40}},
+  {id:4,name:'COOPER THE BEST',title:'CHAMPION',blurb:'CROWN GLORY',hp:170,walk:4.85,air:3.35,jump:-13.1,grav:0.46,rad:20,tall:98,wide:38,crouchH:50,dmg:1.85,lightSu:-2,specStun:10,specBlock:6,special:'glory',spark:7,ai:{zone:0,block:30,spec:24}},
+  {id:5,name:'THE BOSS',title:'GIANT',blurb:'METAL ARM',hp:255,walk:3.4,air:2.35,jump:-11.2,grav:0.55,rad:42,tall:172,wide:88,crouchH:96,dmg:2.775,lightSu:0,specStun:10,specBlock:6,special:'slam',spark:5,ai:{zone:0,block:26,spec:22}}
+];
+var starX=new Float32Array(32), starY=new Float32Array(32);
+for(var si=0;si<32;si++){ starX[si]=(si*173)%960; starY[si]=(si*47)%170+10; }
+var bX=new Float32Array([18,96,168,248,330,412,498,582,668,752,834,910]);
+var bW=new Float32Array([62,50,78,46,72,58,92,52,74,60,78,42]);
+var bH=new Float32Array([108,148,92,168,128,104,158,118,142,108,132,150]);
+
+function makeFighter(slot,def){
+  return {
+    slot:slot, def:def, x:slot?730:230, y:GROUND, face:slot?-1:1,
+    vx:0, vy:0, grounded:1, hp:def.hp, ghost:def.hp,
+    state:'idle', timer:0, stun:0, mv:null, mvKey:'', suMod:0, kind:'',
+    didHit:0, spawned:0, atkId:1, airOk:0, atkCrouch:0, flash:0,
+    combo:0, comboT:0, comboShown:-1, comboStr:'', lastHitF:-999, blockType:0,
+    inL:0, inR:0, inU:0, inD:0, inBlk:0,
+    buf:{lp:0,hp:0,lk:0,hk:0,spec:0},
+    dirs:new Int8Array(24), dirI:0,
+    isCpu:0, scripted:0, react:-1, blkT:0, crouchBlk:0, thinkT:0, walkDir:0, victory:0,
+    hx:0, hy:0, hw:32, hh:80, hbox:0
+  };
+}
+function makePend(){ return {on:0,owner:0,dmg:0,hs:0,bs:0,push:0,knock:0,shake:0,hgt:0,stop:0,sx:0,sy:0,atkId:0,proj:0}; }
+function makeProj(){ return {on:0,x:0,y:0,vx:0,vy:0,w:20,h:16,owner:0,dmg:0,hs:0,bs:0,push:0,knock:0,shake:0,hgt:0,stop:0,life:0,kind:0,atkId:0}; }
+function makeSpark(){ return {x:0,y:0,vx:0,vy:0,life:0,max:1,ci:0,sz:2}; }
+var F=[makeFighter(0,ROSTER[0]), makeFighter(1,ROSTER[1])];
+var PREV=[makeFighter(0,ROSTER[0]), makeFighter(0,ROSTER[1]), makeFighter(0,ROSTER[2]), makeFighter(0,ROSTER[3]), makeFighter(0,ROSTER[4])];
+var pend=[makePend(), makePend()];
+var PROJ=[]; for(var pi=0;pi<PROJ_N;pi++) PROJ.push(makeProj());
+var SP=[]; for(var spi=0;spi<SP_N;spi++) SP.push(makeSpark());
+var FW_N=48, fwCursor=0;
+function makeFw(){ return {x:0,y:0,vx:0,vy:0,life:0,max:1,ci:0}; }
+var FW=[]; for(var fwi=0;fwi<FW_N;fwi++) FW.push(makeFw());
+function spawnFirework(x,y){
+  var n=8, i, p, ang, sp;
+  for(i=0;i<n;i++){
+    p=FW[fwCursor];
+    fwCursor=(fwCursor+1)%FW_N;
+    ang=(i/n)*6.2832+(fwCursor%7)*0.11;
+    sp=1.4+(i%5)*0.55;
+    p.x=x; p.y=y;
+    p.vx=Math.cos(ang)*sp;
+    p.vy=Math.sin(ang)*sp-0.6;
+    p.life=26+(i%6)*3;
+    p.max=p.life;
+    p.ci=i%8;
+  }
+}
+function updateFw(){
+  var i, p;
+  for(i=0;i<FW_N;i++){
+    p=FW[i];
+    if(p.life<=0) continue;
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.045; p.vx*=0.99; p.life--;
+  }
+}
+function drawFw(){
+  var i, p;
+  for(i=0;i<FW_N;i++){
+    p=FW[i];
+    if(p.life<=0) continue;
+    ctx.globalAlpha=p.life/p.max;
+    ctx.fillStyle=SPARK_COLS[p.ci];
+    ctx.fillRect(p.x|0, p.y|0, 3, 3);
+  }
+  ctx.globalAlpha=1;
+}
+function clearFw(){ for(var i=0;i<FW_N;i++) FW[i].life=0; }
+var game={
+  mode:'menu', frame:0, blink:0, picks:[0,1], versus:0, wins:[0,0], roundIndex:1,
+  roundStr:'ROUND 1', timeLeft:3600, secShown:60, secStr:'60', introT:0, koT:0,
+  koStr:'K.O.', roundWinner:-1, hitstop:0, shake:0, winStr:'', scoreStr:'', audio:0,
+  labA:-1, labB:-1, labV:-1, labStr:'',
+  diff:1, cooper:0, gojoStreak:0,
+  paused:0, quest:0, questI:0, questOrder:null, questT:0, matchT:0, boss:0, champT:0
+};
+
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k, String(v)); }catch(e){} }
+function clearMeta(){
+  try{
+    var ks=['crosscut_cooper','crosscut_gojo_streak','crosscut_diff'];
+    var i, k, extra=[];
+    for(i=0;i<ks.length;i++) localStorage.removeItem(ks[i]);
+    for(i=0;i<localStorage.length;i++){
+      k=localStorage.key(i);
+      if(k && k.indexOf('crosscut_')===0) extra.push(k);
+    }
+    for(i=0;i<extra.length;i++) localStorage.removeItem(extra[i]);
+  }catch(e){}
+}
+function loadMeta(){
+  if(lsGet('crosscut_cooper')==='1') game.cooper=1;
+  var s=lsGet('crosscut_gojo_streak');
+  var n=s?parseInt(s,10):0;
+  if(n>0) game.gojoStreak=n;
+  var d=lsGet('crosscut_diff');
+  if(d==='0'||d==='1'||d==='2') game.diff=parseInt(d,10);
+}
+clearMeta();
+loadMeta();
+function rosterCount(){
+  var n=ROSTER.length;
+  if(n && ROSTER[n-1].name==='THE BOSS') n--;
+  return game.cooper?n:4;
+}
+function cardBox(i){
+  if(!game.cooper) return {x:CARD_X[i], y:CARD_Y, w:CARD_W, h:CARD_H};
+  var w=176, gap=8, margin=16;
+  return {x:margin+i*(w+gap), y:CARD_Y, w:w, h:CARD_H};
+}
+function setDiff(d){
+  if(d<0) d=0;
+  if(d>2) d=2;
+  game.diff=d;
+  lsSet('crosscut_diff', game.diff);
+}
+function cycleDiff(){ setDiff((game.diff+1)%3); tone(440,0.05,'square',0.03,320); }
+function diffHit(x,y){
+  if(y<74||y>116||x<16||x>244) return -1;
+  var i=((x-16)/76)|0;
+  if(i<0||i>2) return -1;
+  if((x-16-i*76)>72) return -1;
+  return i;
+}
+function cpuChipBox(cb){ return [cb.x+6, cb.y+cb.h-46, cb.w-12, 40]; }
+function held(a){ for(var i=0;i<a.length;i++) if(down[a[i]]) return 1; return 0; }
+function edged(a){ for(var i=0;i<a.length;i++) if(edge[a[i]]) return 1; return 0; }
+function clearEdges(){ for(var i=0;i<CODES.length;i++) edge[CODES[i]]=0; mdown=0; touchPulse.lp=touchPulse.hp=touchPulse.lk=touchPulse.hk=touchPulse.sp=0; }
+function aabb(ax,ay,aw,ah,bx,by,bw,bh){ return ax<bx+bw && ax+aw>bx && ay<by+bh && ay+ah>by; }
+function hitBox(b){ return mx>=b[0]&&my>=b[1]&&mx<b[0]+b[2]&&my<b[1]+b[3]; }
+function font(f){ if(curFont!==f){ ctx.font=f; curFont=f; } }
+function txt(s,x,y,fnt,align,col,base){
+  font(fnt); ctx.textAlign=align; ctx.textBaseline=base||'middle'; ctx.fillStyle=col; ctx.fillText(s,x,y);
+}
+function tone(freq,dur,type,vol,slide){
+  if(!actx) return;
+  try{
+    var o=actx.createOscillator(), g=actx.createGain();
+    o.type=type;
+    o.frequency.setValueAtTime(freq, actx.currentTime);
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,slide), actx.currentTime+dur);
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime+dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime+dur);
+  }catch(e){}
+}
+function unlock(){
+  game.audio=1;
+  var AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC) return;
+  if(!actx) actx=new AC();
+  if(actx.state==='suspended') actx.resume();
+}
+function burst(x,y,n,ci,spd){
+  var left=n;
+  for(var i=0;i<SP_N && left>0;i++){
+    var s=SP[i];
+    if(s.life>0) continue;
+    var a=(i*2.399+game.frame)*1.7;
+    var sp=spd*(0.45+(i%5)*0.18);
+    s.x=x; s.y=y;
+    s.vx=Math.cos(a)*sp;
+    s.vy=Math.sin(a)*sp-0.8;
+    s.life=12+(i%7);
+    s.max=s.life;
+    s.ci=ci;
+    s.sz=2+(i&1);
+    left--;
+  }
+}
+function updateSparks(){
+  for(var i=0;i<SP_N;i++){
+    var s=SP[i];
+    if(s.life<=0) continue;
+    s.x+=s.vx; s.y+=s.vy; s.vy+=0.16; s.life--;
+  }
+}
+function syncSec(){
+  var s=Math.ceil(game.timeLeft/60);
+  if(s<0) s=0;
+  if(s!==game.secShown){ game.secShown=s; game.secStr=String(s); }
+}
+function cyclePick(slot,dir){
+  var n=rosterCount();
+  var i=game.picks[slot], other=game.picks[1-slot];
+  var k;
+  for(k=0;k<n;k++){
+    i=(i+dir+n)%n;
+    if(i!==other){ game.picks[slot]=i; return; }
+  }
+}
+function startRound(){
+  game.mode='intro';
+  game.introT=0;
+  game.timeLeft=3600;
+  game.secShown=60;
+  game.secStr='60';
+  game.hitstop=0;
+  game.shake=0;
+  game.koT=0;
+  game.roundWinner=-1;
+  game.roundStr='ROUND '+game.roundIndex;
+  for(var i=0;i<PROJ_N;i++) PROJ[i].on=0;
+  for(var s=0;s<SP_N;s++) SP[s].life=0;
+  for(var k=0;k<2;k++){
+    var f=F[k];
+    f.x=k===0?230:730;
+    f.y=GROUND; f.vx=0; f.vy=0; f.grounded=1;
+    f.hp=f.def.hp; f.ghost=f.hp;
+    f.state='idle'; f.timer=0; f.stun=0;
+    f.mv=null; f.mvKey=''; f.kind=''; f.suMod=0;
+    f.didHit=0; f.spawned=0; f.airOk=0; f.atkCrouch=0; f.flash=0;
+    f.combo=0; f.comboT=0; f.victory=0; f.blockType=0;
+    f.face=k===0?1:-1;
+    f.buf.lp=f.buf.hp=f.buf.lk=f.buf.hk=f.buf.spec=0;
+    f.inL=f.inR=f.inU=f.inD=f.inBlk=0;
+    f.react=-1; f.blkT=0; f.walkDir=0; f.thinkT=8;
+  }
+}
+function startMatch(){
+  if(game.quest){
+    game.versus=0;
+    game.picks[0]=4;
+    var qn=game.questOrder&&game.questOrder.length?game.questOrder.length:0;
+    var qi=game.questI|0;
+    if(qi<0||qi>=qn) qi=0;
+    game.questI=qi;
+    game.picks[1]=qn?game.questOrder[qi]:0;
+  }
+  F[0].def=ROSTER[game.picks[0]];
+  F[1].def=ROSTER[game.picks[1]];
+  F[0].isCpu=0;
+  F[1].isCpu=game.versus?0:1;
+  F[0].scripted=0; F[1].scripted=0;
+  game.wins[0]=0; game.wins[1]=0;
+  game.roundIndex=1;
+  startRound();
+}
+function beginQuest(){
+  game.boss=0;
+  var ids=[0,1,2,3];
+  var i,j,tmp;
+  for(i=3;i>0;i--){
+    j=Math.floor(Math.random()*(i+1));
+    tmp=ids[i]; ids[i]=ids[j]; ids[j]=tmp;
+  }
+  game.questOrder=ids;
+  game.questI=0;
+  game.quest=1;
+  game.paused=0;
+  game.versus=0;
+  game.picks[0]=4;
+  game.picks[1]=ids[0];
+  tone(520,0.06,'square',0.04,360);
+  startMatch();
+}
+function updateQuestAsk(){
+  var yes=edge.Enter||edge.NumpadEnter||edge.KeyY;
+  var no=edge.KeyN||edge.Escape;
+  if(mdown){
+    yes=hitBox(YES_BOX)?1:0;
+    no=hitBox(NO_BOX)?1:0;
+  }
+  if(yes) beginQuest();
+  else if(no){ game.quest=0; game.paused=0; game.mode='menu'; }
+}
+function tryStart(){
+  game.boss=0;
+  var n=rosterCount();
+  if(game.picks[0]>=n) game.picks[0]=0;
+  if(game.picks[1]>=n) game.picks[1]=n>1?1:0;
+  if(game.picks[0]===game.picks[1]) cyclePick(1,1);
+  tone(520,0.06,'square',0.04,360);
+  startMatch();
+}
+function startBoss(){
+  var bi=-1, i;
+  for(i=0;i<ROSTER.length;i++) if(ROSTER[i].name==='THE BOSS') bi=i;
+  if(bi<0) return;
+  var n=rosterCount();
+  if(game.picks[0]<0||game.picks[0]>=n) game.picks[0]=0;
+  game.picks[1]=bi;
+  game.versus=0;
+  game.quest=0;
+  game.boss=1;
+  game.paused=0;
+  tone(160,0.1,'sawtooth',0.05,48);
+  startMatch();
+}
+function noteMatch(winner){
+  if(game.versus) return 0;
+  if(game.boss || (F[1].def && F[1].def.name==='THE BOSS')) return 0;
+  if(!F[1].isCpu || F[1].def.id!==0) return 0;
+  if(winner!==0){
+    game.gojoStreak=0;
+    lsSet('crosscut_gojo_streak', 0);
+    return 0;
+  }
+  if(game.diff!==2) return 0;
+  game.gojoStreak=(game.gojoStreak||0)+1;
+  lsSet('crosscut_gojo_streak', game.gojoStreak);
+  if(game.gojoStreak>=2 && !game.cooper){
+    game.cooper=1;
+    lsSet('crosscut_cooper', 1);
+    return 1;
+  }
+  return 0;
+}
+function updateMenu(){
+  game.versus=0;
+  game.boss=0;
+  var nPlay=rosterCount();
+  if(game.picks[0]>=nPlay) game.picks[0]=0;
+  if(game.picks[1]>=nPlay) game.picks[1]=game.picks[0]===0?1:0;
+  if(edge.Digit3) cycleDiff();
+  if(edge.KeyA) cyclePick(0,-1);
+  if(edge.KeyD) cyclePick(0,1);
+  if(edge.KeyW) cyclePick(1,-1);
+  if(edge.KeyS) cyclePick(1,1);
+  if(edge.Enter||edge.NumpadEnter) tryStart();
+  if(mdown && hitBox(BOSS_BOX)){
+    startBoss();
+    return;
+  } else if(mdown && game.cooper && hitBox(QUEST_BOX)){
+    game.mode='questask';
+    game.quest=0;
+    game.paused=0;
+    tone(500,0.05,'square',0.035,380);
+  } else if(mdown){
+    var dh=diffHit(mx,my);
+    if(dh>=0) setDiff(dh);
+    var nCard=rosterCount();
+    var cpuPick=-1, youPick=-1, ci;
+    for(ci=0;ci<nCard;ci++){
+      var cb=cardBox(ci);
+      var chip=cpuChipBox(cb);
+      if(mx>=chip[0]&&mx<chip[0]+chip[2]&&my>=chip[1]&&my<chip[1]+chip[3]) cpuPick=ci;
+      else if(mx>=cb.x && mx<=cb.x+cb.w && my>=cb.y && my<=cb.y+cb.h) youPick=ci;
+    }
+    if(hitBox(YOU_PREV)) cyclePick(0,-1);
