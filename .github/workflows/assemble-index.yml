@@ -1,5 +1,8 @@
 name: assemble-index
 on:
+  push:
+    paths:
+      - 'parts/**'
   workflow_dispatch:
 permissions:
   contents: write
