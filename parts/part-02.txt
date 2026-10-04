@@ -1,0 +1,424 @@
+      f.x+=f.vx; f.vx*=0.8;
+      return;
+    }
+    if(f.kind==='slash' && f.timer>=su && f.timer<su+f.mv.ac){
+      f.x+=f.face*12;
+      if((game.frame&1)===0) burst(f.x-f.face*10, f.y-40, 1, 3, 1.5);
+    }
+    if(f.kind==='glory' && f.timer>=su && f.timer<su+f.mv.ac){
+      f.x+=f.face*5.5;
+      if((game.frame&1)===0) burst(f.x+f.face*20, f.y-64, 2, 7, 2.5);
+    }
+    if(f.kind==='slam' && f.timer>=su && f.timer<su+f.mv.ac){
+      f.x+=f.face*6.5;
+      if(f.timer===su){
+        game.shake=8;
+        burst(f.x+f.face*46, GROUND-4, 12, 5, 3.6);
+        tone(58,0.22,'sawtooth',0.07,32);
+      }
+      if((game.frame&1)===0) burst(f.x+f.face*60, GROUND-6, 2, 5, 2.4);
+    }
+    if(!f.spawned && f.timer===su && f.mv.kind && f.mv.kind!=='slash' && f.mv.kind!=='slam'){
+      spawnProj(f, f.mv.kind);
+      f.spawned=1;
+    }
+    if(!f.grounded){
+      f.vy+=f.def.grav;
+      if(f.vy>13) f.vy=13;
+      f.y+=f.vy;
+      if(f.inL) f.x-=f.def.air*0.55;
+      if(f.inR) f.x+=f.def.air*0.55;
+      if(f.y>=GROUND){
+        f.y=GROUND; f.vy=0; f.grounded=1;
+        burst(f.x, GROUND, 3, 5, 1.1);
+        if(f.timer<su+f.mv.ac) f.timer=su+f.mv.ac;
+      }
+    }
+    f.x+=f.vx; f.vx*=0.84;
+    if(f.vx<0.05&&f.vx>-0.05) f.vx=0;
+    return;
+  }
+  if(f.state==='hit'){
+    f.stun--;
+    if(!f.grounded||f.vy<0){
+      f.vy+=f.def.grav; if(f.vy>13) f.vy=13; f.y+=f.vy;
+      if(f.y>=GROUND){ f.y=GROUND; f.vy=0; f.grounded=1; }
+      else f.grounded=0;
+    }
+    f.x+=f.vx; f.vx*=0.86;
+    if(f.stun<=0&&f.grounded){ f.state='idle'; f.vx=0; }
+    else if(f.stun<=0) f.state='air';
+    return;
+  }
+  if(f.state==='ko'){
+    f.timer++;
+    f.vy+=f.def.grav; if(f.vy>13) f.vy=13; f.y+=f.vy;
+    f.x+=f.vx; f.vx*=0.92;
+    if(f.y>=GROUND){ f.y=GROUND; f.vy=0; f.grounded=1; f.vx*=0.86; }
+    return;
+  }
+  if(f.state==='blockstun'){
+    f.stun--;
+    f.x+=f.vx; f.vx*=0.82;
+    if(f.stun<=0){
+      f.vx=0;
+      f.state=f.inBlk?(f.inD?'cblock':'block'):'idle';
+      f.blockType=f.inD?1:0;
+    }
+    return;
+  }
+  if(!f.grounded||f.state==='air'){
+    f.vy+=f.def.grav; if(f.vy>13) f.vy=13; f.y+=f.vy;
+    if(f.inL) f.x-=f.def.air;
+    if(f.inR) f.x+=f.def.air;
+    if(f.y>=GROUND){
+      f.y=GROUND; f.vy=0; f.grounded=1; f.airOk=0; f.state='idle';
+      burst(f.x, GROUND, 3, 5, 1);
+    } else { f.state='air'; f.grounded=0; }
+    f.x+=f.vx; f.vx*=0.9;
+    return;
+  }
+  if(f.inBlk){
+    f.state=f.inD?'cblock':'block';
+    f.blockType=f.inD?1:0;
+  } else if(f.inD){
+    f.state='crouch';
+  } else if(f.inL||f.inR){
+    f.state='walk';
+    if(f.inL) f.x-=f.def.walk;
+    if(f.inR) f.x+=f.def.walk;
+    if(f.def.id===1 && (game.frame&3)===0) burst(f.x, GROUND-2, 1, 6, 0.7);
+  } else f.state='idle';
+  f.x+=f.vx; f.vx*=0.8;
+}
+function updateFace(f,o){
+  if(f.state==='atk'||f.state==='spec'||f.state==='hit'||f.state==='ko'||f.state==='blockstun') return;
+  if(o.x<f.x) f.face=-1;
+  else if(o.x>f.x) f.face=1;
+}
+function separate(){
+  var a=F[0], b=F[1];
+  if(a.state==='ko'||b.state==='ko') return;
+  var dx=b.x-a.x;
+  var min=a.def.rad+b.def.rad;
+  var ad=dx<0?-dx:dx;
+  if(ad>=min) return;
+  if(ad<0.0001) dx=1;
+  var pen=min-ad;
+  var sign=dx<0?-1:1;
+  a.x-=sign*pen*0.5;
+  b.x+=sign*pen*0.5;
+  if(a.x<STAGE_L){ var k=STAGE_L-a.x; a.x=STAGE_L; b.x+=k; }
+  if(b.x>STAGE_R){ var k2=b.x-STAGE_R; b.x=STAGE_R; a.x-=k2; }
+  if(b.x<STAGE_L) b.x=STAGE_L;
+  if(a.x>STAGE_R) a.x=STAGE_R;
+  if(a.x<STAGE_L) a.x=STAGE_L;
+  if(b.x>STAGE_R) b.x=STAGE_R;
+}
+function clampF(f){
+  if(f.x<STAGE_L) f.x=STAGE_L;
+  if(f.x>STAGE_R) f.x=STAGE_R;
+  if(f.y>GROUND){ f.y=GROUND; f.vy=0; f.grounded=1; }
+  if(f.y<GROUND-230){ f.y=GROUND-230; if(f.vy<0) f.vy=0; }
+}
+function setHurt(f){
+  var d=f.def;
+  var crouch=f.state==='crouch'||f.state==='cblock'||f.atkCrouch||(f.state==='blockstun'&&f.blockType===1);
+  if(f.state==='ko'&&f.grounded&&f.timer>12){
+    f.hw=d.tall*0.62; f.hh=26; f.hx=f.x-f.hw*0.35; f.hy=f.y-f.hh;
+  } else if(crouch){
+    f.hw=d.wide+8; f.hh=d.crouchH; f.hx=f.x-f.hw/2; f.hy=f.y-f.hh;
+  } else {
+    f.hw=d.wide; f.hh=d.tall; f.hx=f.x-f.hw/2; f.hy=f.y-f.hh;
+  }
+}
+function consider(ai,di){
+  var a=F[ai], d=F[di];
+  if(!a.mv||a.didHit) return;
+  if(a.state!=='atk'&&a.state!=='spec') return;
+  var su=a.mv.su+a.suMod;
+  if(a.timer<su||a.timer>=su+a.mv.ac) return;
+  var sy=a.def.tall/90;
+  var hb=a.mv.hb;
+  var hw=hb[2]*(0.82+0.28*(a.def.wide/36));
+  var hh=hb[3]*sy;
+  var hy0=hb[1]*sy;
+  var hx0=hb[0]*(0.78+0.28*(a.def.wide/36));
+  var x=a.face===1?a.x+hx0:a.x-hx0-hw;
+  var y=a.y+hy0;
+  if(d.state==='ko') return;
+  if(!aabb(x,y,hw,hh,d.hx,d.hy,d.hw,d.hh)) return;
+  var p=pend[di];
+  p.on=1; p.owner=ai; p.proj=0; p.atkId=a.atkId;
+  p.dmg=outDmg(a.mv.dmg, a);
+  p.hs=a.mv.hs+(a.state==='spec'?(a.def.specStun||0):0);
+  p.bs=a.mv.bs+(a.state==='spec'?(a.def.specBlock||0):0);
+  p.push=a.mv.push; p.knock=a.mv.knock; p.shake=a.mv.shake; p.hgt=a.mv.h; p.stop=a.mv.stop;
+  p.sx=x+hw*0.5; p.sy=y+hh*0.5;
+}
+function updateProj(){
+  for(var i=0;i<PROJ_N;i++){
+    var p=PROJ[i];
+    if(!p.on) continue;
+    p.x+=p.vx; p.life--;
+    if(p.life<=0||p.x<-60||p.x>W+60){ p.on=0; continue; }
+    if((game.frame&1)===0) burst(p.x+p.w*0.5, p.y+p.h*0.5, 1, p.kind===0?1:p.kind===1?6:p.kind===3?7:4, 0.7);
+    var owner=F[p.owner];
+    if(owner.didHit && owner.atkId===p.atkId){ p.on=0; continue; }
+    var d=F[1-p.owner];
+    if(d.state==='ko'||pend[d.slot].on) continue;
+    if(aabb(p.x,p.y,p.w,p.h,d.hx,d.hy,d.hw,d.hh)){
+      p.on=0;
+      var pe=pend[d.slot];
+      pe.on=1; pe.owner=p.owner; pe.proj=1; pe.atkId=p.atkId;
+      pe.dmg=p.dmg; pe.hs=p.hs; pe.bs=p.bs; pe.push=p.push; pe.knock=p.knock;
+      pe.shake=p.shake; pe.hgt=p.hgt; pe.stop=p.stop;
+      pe.sx=p.x+p.w*0.5; pe.sy=p.y+p.h*0.5;
+    }
+  }
+}
+function blocking(d,hgt){
+  if(!d.grounded) return false;
+  if(d.state==='ko'||d.state==='hit'||d.state==='atk'||d.state==='spec'||d.state==='air') return false;
+  if(d.state!=='block'&&d.state!=='cblock'&&d.state!=='blockstun') return false;
+  if(hgt===0) return true;
+  if(hgt===1) return d.blockType===1;
+  return d.blockType===0;
+}
+function applyHit(d,info){
+  var a=F[info.owner];
+  var away=d.x>=a.x?1:-1;
+  var same=!info.proj || a.atkId===info.atkId;
+  if(blocking(d, info.hgt)){
+    if(d.state!=='blockstun') d.blockType=(d.state==='cblock'||d.inD)?1:0;
+    d.state='blockstun';
+    d.stun=info.bs;
+    d.vx=away*info.push*0.55;
+    d.vy=0;
+    if(same){ a.vx=-away*info.push*0.28; a.didHit=1; a.combo=0; }
+    burst(info.sx, info.sy, 5, 7, 2.1);
+    tone(460,0.04,'triangle',0.035,200);
+    if(info.shake) game.shake=Math.min(8, Math.max(game.shake, info.shake*0.4));
+    game.hitstop=Math.max(game.hitstop, Math.min(4, info.stop||3));
+    return;
+  }
+  var next=(game.frame-a.lastHitF<50 && a.combo>0)?a.combo+1:1;
+  var dmg=info.dmg, stun=info.hs;
+  if(next>=4){ dmg=Math.max(1,dmg-3); stun=Math.max(8,(stun*0.7)|0); }
+  else if(next===3){ dmg=Math.max(1,dmg-1); stun=(stun*0.85)|0; }
+  d.hp-=dmg; if(d.hp<0) d.hp=0;
+  d.flash=6;
+  d.vx=away*info.knock;
+  d.vy=0;
+  if(same) a.vx=-away*info.push*0.18;
+  a.combo=next; a.comboT=46; a.lastHitF=game.frame;
+  if(same) a.didHit=1;
+  if(a.combo!==a.comboShown){ a.comboShown=a.combo; a.comboStr=a.combo+' HITS'; }
+  burst(info.sx, info.sy, info.shake?10:6, a.def.spark, info.shake?3.1:2.1);
+  if(d.hp<=0){
+    d.state='ko'; d.timer=0; d.vy=-3.3; d.grounded=0;
+    d.vx=away*(info.knock+1.6);
+    game.hitstop=Math.max(game.hitstop, 12);
+    game.shake=Math.min(8, Math.max(game.shake, 7));
+    tone(96,0.32,'sawtooth',0.06,42);
+  } else {
+    d.state='hit'; d.stun=stun;
+    game.hitstop=Math.max(game.hitstop, info.stop||3);
+    if(info.shake) game.shake=Math.min(8, Math.max(game.shake, info.shake));
+    tone(168,0.06,'square',0.045,70);
+  }
+}
+function maybeEnd(){
+  if(game.mode!=='fight') return;
+  var a=F[0], b=F[1];
+  if(a.hp>0 && b.hp>0 && game.timeLeft>0) return;
+  game.mode='ko';
+  game.koT=0;
+  var w=-1;
+  if(a.hp>b.hp) w=0; else if(b.hp>a.hp) w=1;
+  game.roundWinner=w;
+  if(w>=0) game.wins[w]++;
+  var timed=game.timeLeft<=0 && a.hp>0 && b.hp>0;
+  if(w<0) game.koStr='DRAW';
+  else if(timed) game.koStr='TIME';
+  else game.koStr='K.O.';
+  for(var i=0;i<2;i++){
+    var f=F[i];
+    f.buf.lp=f.buf.hp=f.buf.lk=f.buf.hk=f.buf.spec=0;
+    if(f.hp<=0){
+      if(f.state!=='ko'){
+        f.state='ko'; f.timer=0; f.vy=-3.2; f.grounded=0;
+        f.vx=(f.x>=F[1-i].x?1:-1)*3;
+      }
+      f.victory=0;
+    } else {
+      f.state='idle'; f.mv=null; f.kind=''; f.mvKey=''; f.vx=0;
+      f.victory=w===i?1:0;
+    }
+  }
+}
+function update(){
+  if(game.paused){
+    if(game.mode!=='intro'&&game.mode!=='fight'&&game.mode!=='ko') game.paused=0;
+    else {
+      if(edge.Escape || (mdown && hitBox(RESUME_BOX))) game.paused=0;
+      clearEdges();
+      return;
+    }
+  }
+  if((game.mode==='intro'||game.mode==='fight'||game.mode==='ko') && mdown && hitBox(PAUSE_BOX)){
+    game.paused=1;
+    clearEdges();
+    return;
+  }
+  game.blink++;
+  if(game.mode!=='menu' && game.mode!=='match' && game.mode!=='celebrate' && game.mode!=='champion' && game.mode!=='questask' && game.mode!=='questfail' && game.mode!=='questwin' && game.hitstop>0){
+    if(edge.Escape && !game.quest){ game.mode='menu'; game.hitstop=0; clearEdges(); return; }
+    game.hitstop--;
+    for(var hf=0;hf<2;hf++) if(F[hf].flash>0) F[hf].flash--;
+    updateSparks();
+    if(game.shake>0){ game.shake*=0.82; if(game.shake<0.35) game.shake=0; }
+    clearEdges();
+    return;
+  }
+  game.frame++;
+  if(game.mode==='menu'){ updateMenu(); clearEdges(); updateSparks(); return; }
+  if(game.mode==='questask'){ updateQuestAsk(); clearEdges(); updateSparks(); return; }
+  if(game.mode==='questfail'){
+    game.questT++;
+    if(game.questT>=150 || edge.Enter||edge.NumpadEnter||edge.Escape||mdown) game.mode='menu';
+    clearEdges(); updateSparks(); return;
+  }
+  if(game.mode==='questwin'){
+    if(edge.Enter||edge.NumpadEnter||mdown) game.mode='menu';
+    clearEdges(); updateSparks(); return;
+  }
+  if(game.mode==='match'){
+    game.matchT++;
+    if(game.matchT>=300){
+      game.mode='menu'; game.paused=0; game.hitstop=0; game.boss=0;
+      var nBack=rosterCount();
+      if(game.picks[1]>=nBack) game.picks[1]=game.picks[0]===0?1:0;
+    }
+    clearEdges(); updateSparks(); return;
+  }
+  if(game.mode==='champion'){
+    game.champT++;
+    F[0].victory=1;
+    F[0].state='idle';
+    F[0].mv=null; F[0].kind=''; F[0].mvKey='';
+    if((game.champT%16)===1) spawnFirework(70+(game.champT*53)%820, 36+(game.champT*17)%150);
+    if((game.champT%16)===9) spawnFirework(140+(game.champT*37)%700, 28+(game.champT*23)%120);
+    updateFw();
+    if(game.champT>=300){
+      clearFw();
+      game.mode='menu'; game.paused=0; game.hitstop=0; game.boss=0; game.champT=0;
+      var nChamp=rosterCount();
+      if(game.picks[1]>=nChamp) game.picks[1]=game.picks[0]===0?1:0;
+    }
+    clearEdges(); updateSparks(); return;
+  }
+  if(game.mode==='celebrate'){
+    if(edge.Enter||edge.NumpadEnter||edge.Escape||mdown){
+      game.mode='questask';
+      game.hitstop=0;
+      game.paused=0;
+    }
+    clearEdges(); updateSparks(); return;
+  }
+  if(edge.Escape && !game.quest){ game.mode='menu'; clearEdges(); return; }
+  if(game.quest){
+    game.versus=0;
+    F[0].isCpu=0;
+    F[1].isCpu=1;
+    if(F[0].def.id!==4) F[0].def=ROSTER[4];
+  }
+  if(game.mode==='intro'){
+    game.introT++;
+    if(game.introT===58) tone(620,0.08,'square',0.04,460);
+    if(game.introT>=92) game.mode='fight';
+    updateFace(F[0],F[1]); updateFace(F[1],F[0]);
+    clearEdges(); updateSparks(); return;
+  }
+  if(game.mode==='fight'){
+    for(var i=0;i<2;i++){
+      var f=F[i];
+      if(f.isCpu) ai(f, F[1-i]);
+      else if(!f.scripted) readHuman(f, MAP[i]);
+      pushDir(f);
+      if(!f.isCpu && !f.scripted && f.state!=='spec' && f.grounded && (edged(MAP[i].lp)||edged(MAP[i].hp)||(i===0&&(touchPulse.lp||touchPulse.hp))) && qcf(f)){
+        f.buf.spec=10; f.buf.lp=0; f.buf.hp=0;
+      }
+    }
+    if(game.timeLeft>0) game.timeLeft--;
+    syncSec();
+  } else {
+    for(var j=0;j<2;j++){
+      var g=F[j];
+      g.inL=g.inR=g.inU=g.inD=g.inBlk=0;
+      g.buf.lp=g.buf.hp=g.buf.lk=g.buf.hk=g.buf.spec=0;
+    }
+  }
+  updateFighter(F[0]); updateFighter(F[1]);
+  separate();
+  clampF(F[0]); clampF(F[1]);
+  updateFace(F[0],F[1]); updateFace(F[1],F[0]);
+  setHurt(F[0]); setHurt(F[1]);
+  pend[0].on=0; pend[1].on=0;
+  if(game.mode==='fight'){
+    consider(0,1); consider(1,0);
+    updateProj();
+    if(pend[0].on) applyHit(F[0], pend[0]);
+    if(pend[1].on) applyHit(F[1], pend[1]);
+    maybeEnd();
+  } else {
+    for(var p=0;p<PROJ_N;p++) PROJ[p].on=0;
+  }
+  for(var n=0;n<2;n++){
+    var q=F[n];
+    if(q.comboT>0) q.comboT--;
+    if(q.flash>0) q.flash--;
+    if(q.ghost>q.hp+0.15) q.ghost-=0.45; else q.ghost=q.hp;
+  }
+  if(game.mode==='ko'){
+    game.koT++;
+    if(game.koT>=115){
+      if(game.wins[0]>=2||game.wins[1]>=2){
+        var w=game.wins[0]>=2?0:1;
+        if(game.quest){
+          if(w!==0){
+            game.quest=0;
+            game.questOrder=null;
+            game.paused=0;
+            game.hitstop=0;
+            game.mode='questfail';
+            game.questT=0;
+          } else if(!game.questOrder || game.questI+1>=game.questOrder.length){
+            game.quest=0;
+            game.questOrder=null;
+            game.paused=0;
+            game.hitstop=0;
+            game.mode='questwin';
+          } else {
+            game.questI++;
+            startMatch();
+          }
+        } else if(noteMatch(w)){
+          game.mode='celebrate';
+          game.hitstop=0;
+        } else if(w===0 && F[1].isCpu && F[1].def && F[1].def.name==='THE BOSS'){
+          game.mode='champion';
+          game.champT=0;
+          game.hitstop=0;
+          game.paused=0;
+          clearFw();
+          F[0].victory=1;
+          F[0].state='idle';
+          F[0].mv=null; F[0].kind=''; F[0].mvKey=''; F[0].vx=0;
+        } else {
+          game.mode='match';
+          game.matchT=0;
+          game.winStr=F[w].def.name+' WINS';
+          game.scoreStr=game.wins[0]+'  -  '+game.wins[1];
+        }
+      } else {
