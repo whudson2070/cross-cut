@@ -8,14 +8,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble index.html
+      - name: Assemble index.html from gzip+base64 parts
         run: |
-          cat parts/0.txt parts/1.txt parts/2.txt > index.html
-          cmp index.html <(cat parts/0.txt parts/1.txt parts/2.txt)
+          cat parts/b64_0.txt parts/b64_1.txt parts/b64_2.txt | base64 -d | gzip -d > index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('index.html')
+          assert p.stat().st_size == 69723, p.stat().st_size
+          print('index.html bytes', p.stat().st_size)
+          PY
           rm -rf parts
           rm -f .github/workflows/assemble-index.yml
           git config user.name "whudson2070"
           git config user.email "whudson2070@gmail.com"
           git add -A
+          git status
           git commit -m "Add Cross-Cut game index.html"
           git push
