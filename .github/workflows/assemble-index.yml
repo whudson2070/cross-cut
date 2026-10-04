@@ -1,0 +1,21 @@
+name: assemble-index
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble index.html
+        run: |
+          cat parts/0.txt parts/1.txt parts/2.txt > index.html
+          cmp index.html <(cat parts/0.txt parts/1.txt parts/2.txt)
+          rm -rf parts
+          rm -f .github/workflows/assemble-index.yml
+          git config user.name "whudson2070"
+          git config user.email "whudson2070@gmail.com"
+          git add -A
+          git commit -m "Add Cross-Cut game index.html"
+          git push
