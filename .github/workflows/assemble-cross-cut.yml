@@ -1,0 +1,22 @@
+name: Assemble Cross-Cut
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Join parts into index.html
+        run: |
+          cat parts/part-00.txt parts/part-01.txt parts/part-02.txt parts/part-03.txt parts/part-04.txt parts/part-05.txt > index.html
+          test "$(wc -c < index.html)" -eq 79964
+      - name: Commit the full game
+        run: |
+          git config user.name "whudson2070"
+          git config user.email "whudson2070@gmail.com"
+          git add index.html
+          git rm -r parts
+          git commit -m "Replace Cross-Cut game."
+          git push
